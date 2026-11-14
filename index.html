@@ -1,5 +1,6 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Kolwer</title>
+<meta name="kolwer-build" content="2026-11-14-owner-premium-badges">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Unbounded:wght@600;700&display=swap">
 <style>
@@ -93,6 +94,14 @@ svg{flex:none}
 .av.owner{background:linear-gradient(145deg,#FFD65A,#E39A00);color:#3A2600;box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--gold)}
 .av-gap{width:32px;flex:none}
 .star{color:var(--gold);font-size:.95em;margin-left:4px}
+.verify-row{display:inline-flex;align-items:center;gap:3px;margin-left:5px;vertical-align:middle}
+.verify{width:16px;height:16px;display:inline-grid;place-items:center;border-radius:50%;color:#fff;font-size:10px;font-weight:800;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.verify.blue{background:#2788F5}.verify.red{background:#E04455}.verify.green{background:#20A66A}
+.premium-mark{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;font-size:15px;line-height:1;
+  background:linear-gradient(120deg,#fff0a6,#d9a7ff,#8bdcff,#fff0a6);background-size:220% 220%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 3px rgba(151,115,255,.45));animation:premiumShine 3s linear infinite}
+@keyframes premiumShine{to{background-position:220% 50%}}
+@media(prefers-reduced-motion:reduce){.premium-mark{animation:none}}
 .stars-pill{display:inline-flex;align-items:center;gap:6px;background:var(--gold-bg);color:var(--gold);font-weight:600;border-radius:999px;padding:4px 12px;font-variant-numeric:tabular-nums}
 .role{font-size:12px;color:var(--gold);font-weight:600}
 
@@ -368,9 +377,25 @@ function starMark(uid){
   var s=el("span","star","★");s.title="Владелец Kolwer";return s;
 }
 function nickOf(uid){var p=S.profiles.get(uid);return p&&p.nick?p.nick:"Участник"}
+function grantOf(uid){var g=S.grants.get(uid)||{};return {numbers:Array.isArray(g.numbers)?g.numbers:[],usernames:Array.isArray(g.usernames)?g.usernames:[],badges:Array.isArray(g.badges)?g.badges:[],premium:!!g.premium,premiumUntil:Number(g.premiumUntil)||0};}
+function isPremium(uid){var g=grantOf(uid);return isOwnerUid(uid)||(g.premium&&(!g.premiumUntil||g.premiumUntil>Date.now()));}
+function verificationMarks(uid){
+  var g=grantOf(uid),flags=new Set(g.badges||[]);
+  if(isOwnerUid(uid)){flags.add("blue");flags.add("red");flags.add("green")}
+  var row=el("span","verify-row");
+  [["blue","Синяя галочка"],["red","Красная галочка"],["green","Зелёная галочка"]].forEach(function(x){
+    if(!flags.has(x[0]))return;
+    var b=el("span","verify "+x[0],"✓");b.title=x[1];b.setAttribute("aria-label",x[1]);row.append(b);
+  });
+  if(row.childNodes.length)return row;
+  return null;
+}
+function premiumMark(uid){if(!isPremium(uid))return null;var p=el("span","premium-mark","★");p.title="Kolwer Premium";p.setAttribute("aria-label","Kolwer Premium");return p}
 function nameWithStar(cls,uid,text){
   var d=el("div",cls);d.append(text);
   var s=starMark(uid);if(s)d.append(s);
+  var v=verificationMarks(uid);if(v)d.append(v);
+  var pm=premiumMark(uid);if(pm)d.append(pm);
   return d;
 }
 function fmtStars(n){return new Intl.NumberFormat("ru-RU").format(n)}
@@ -990,8 +1015,8 @@ function renderConvHead(){
   var title=c?titleOf(c):"Чат";
   var av=c?(c.kind==="dm"?avatar(otherOf(c),title):avatar(S.active,title,"sq")):avatar(S.active,"?","sq");
   $("#convAv").replaceChildren(av);
-  var t=$("#convTitle");t.replaceChildren(title);
-  if(c&&c.kind==="dm"){var sm=starMark(otherOf(c));if(sm)t.append(sm)}
+  var t=$("#convTitle");t.replaceChildren();
+  if(c&&c.kind==="dm")t.append(nameWithStar("conv-title",otherOf(c),title));else t.textContent=title;
   var sub="",on=false;
   if(c){
     if(c.kind==="dm"){var st=statusOf(otherOf(c));sub=st.t;on=st.on}
@@ -1482,9 +1507,11 @@ function isBlk(id){try{return JSON.parse(ls.get("kw:blk")||"[]").indexOf(id)>=0}
 function toggleBlk(id){var a=[];try{a=JSON.parse(ls.get("kw:blk")||"[]")}catch(e){}var i=a.indexOf(id);if(i>=0)a.splice(i,1);else a.push(id);ls.set("kw:blk",JSON.stringify(a));return i<0}
 function bal(uid){var r=realOf(uid),w=S.wallets.get(r),s=S.spends.get(r);return Math.max(0,((w&&w.granted)||0)-((s&&s.spent)||0))}
 function banned(uid){return S.bans.has(realOf(uid))}
-function claimFor(path,uid){var r=S.db.doc(path);return r.get().then(function(s){var d=s.exists?s.data():null;if(d&&d.uid&&d.uid!==uid)throw {code:"taken",path:path};return r.set({uid:uid})})}
+function claimFor(path,uid){
+  var r=S.db.doc(path);
+  return S.db.runTransaction(function(tx){return tx.get(r).then(function(s){var d=s.exists?s.data():null;if(d&&d.uid&&d.uid!==uid)throw {code:"taken",path:path};tx.set(r,{uid:uid});});});
+}
 function fmt888(d){d=String(d);return d.indexOf("888")===0?"+888 "+d.slice(3,7)+" "+d.slice(7):"+"+d}
-function grantOf(uid){var g=S.grants.get(uid)||{};return {numbers:Array.isArray(g.numbers)?g.numbers:[],usernames:Array.isArray(g.usernames)?g.usernames:[]}}
 function xtra(id){var g=grantOf(id);return g.usernames.join(" ")+" "+g.numbers.join(" ")}
 function logIntr(what){if(!S.db)return;S.db.doc("intrusions/"+newId()).set({uid:S.me,nick:nickOf(S.me),at:Date.now(),what:what}).catch(function(){})}
 var dnT=0;
@@ -1561,8 +1588,10 @@ function openShop(to){
 }
 function profExtras(card,uid){
   var g=grantOf(uid);
-  if(g.numbers.length)card.append(kv("Коллекционный номер",g.numbers.map(fmt888).join(", ")));
-  if(g.usernames.length)card.append(kv("Также",g.usernames.map(function(x){return "@"+x}).join(", ")));
+  if(g.numbers.length)card.append(kv("Коллекционные номера",g.numbers.map(fmt888).join(", ")));
+  if(g.usernames.length)card.append(kv("Дополнительные юзернеймы",g.usernames.map(function(x){return "@"+x}).join(", ")));
+  if(isPremium(uid))card.append(kv("Статус","★ Kolwer Premium"));
+  if((g.badges||[]).length||isOwnerUid(uid))card.append(kv("Проверка Kolwer",isOwnerUid(uid)?"Синяя · красная · зелёная · официальный владелец":"Выданные значки: "+g.badges.join(", ")));
   var gl=myGifts(uid);
   if(gl.length){card.append(el("div","sec","Подарки · "+gl.length));card.append(gGrid(gl.slice(0,6),openGift))}
   if(banned(uid))card.append(kv("Статус","Заблокирован владельцем"));
@@ -1658,12 +1687,48 @@ function manageUser(uid){
     var un=cleanUn(uf.input.value);if(!unHint(un,el("div"))){toast("Проверьте юзернейм");return}
     claimFor("usernames/"+un,uid).then(function(){return S.db.doc("grants/"+uid).set({numbers:g.numbers,usernames:g.usernames.concat([un])})}).then(function(){toast("Юзернейм добавлен");again()},fail);
   }));
+  c.append(btn("Выдать 10 свободных юзернеймов","ghost",function(){
+    var list=g.usernames.slice(),made=0,tries=0;
+    function next(){
+      if(made>=10||tries>=100){S.db.doc("grants/"+uid).set({numbers:g.numbers,usernames:list},{merge:true}).then(function(){toast("Добавлено юзернеймов: "+made);again()},fail);return}
+      tries++;var un="kw"+Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"");
+      claimFor("usernames/"+un,uid).then(function(){list.push(un);made++;next()},function(){next()});
+    }next();
+  }));
   c.append(el("div","sec","Номер 888"));
   var nf=formField("mnum","Номер (пусто = случайный)","",15,{type:"tel",mode:"tel",ph:"888 0222 0222"});c.append(nf.wrap);
   c.append(btn("Выдать номер","",function(){
     var d=String(nf.input.value).replace(/\D/g,"")||("888"+String(Math.floor(Math.random()*1e8)).padStart(8,"0"));
     if(d.indexOf("888")!==0||d.length<8){toast("Номер должен начинаться с 888");return}
     claimFor("phones/"+d,uid).then(function(){return S.db.doc("grants/"+uid).set({numbers:g.numbers.concat([d]),usernames:g.usernames})}).then(function(){toast("Выдан "+fmt888(d));again()},fail);
+  }));
+  c.append(btn("Выдать 10 свободных номеров","ghost",function(){
+    var list=g.numbers.slice(),made=0,tries=0;
+    function next(){
+      if(made>=10||tries>=100){S.db.doc("grants/"+uid).set({numbers:list,usernames:g.usernames},{merge:true}).then(function(){toast("Добавлено номеров: "+made);again()},fail);return}
+      tries++;var d="888"+String(Math.floor(Math.random()*1e8)).padStart(8,"0");
+      claimFor("phones/"+d,uid).then(function(){list.push(d);made++;next()},function(){next()});
+    }next();
+  }));
+  c.append(el("div","sec","Значки профиля"));
+  var currentBadges=new Set(g.badges||[]), badgeChecks={};
+  [["blue","Синяя галочка"],["red","Красная галочка · медийные"],["green","Зелёная галочка"]].forEach(function(x){
+    var lab=el("label","row-act");lab.style.justifyContent="flex-start";
+    var cb=el("input");cb.type="checkbox";cb.checked=currentBadges.has(x[0]);cb.style.width="20px";cb.style.height="20px";
+    badgeChecks[x[0]]=cb;lab.append(cb,el("span",null,x[1]));c.append(lab);
+  });
+  c.append(btn("Сохранить галочки","",function(){
+    var badges=Object.keys(badgeChecks).filter(function(k){return badgeChecks[k].checked});
+    S.db.doc("grants/"+uid).set({numbers:g.numbers,usernames:g.usernames,badges:badges,premium:g.premium,premiumUntil:g.premiumUntil},{merge:true})
+      .then(function(){toast("Галочки обновлены");again()},fail);
+  }));
+  c.append(el("div","sec","Kolwer Premium"));
+  var prem=el("label","row-act");prem.style.justifyContent="flex-start";
+  var pcb=el("input");pcb.type="checkbox";pcb.checked=isPremium(uid)&&!isOwnerUid(uid);pcb.style.width="20px";pcb.style.height="20px";
+  prem.append(pcb,el("span",null,"Активировать Premium без срока"));c.append(prem);
+  c.append(btn("Сохранить Premium","ghost",function(){
+    S.db.doc("grants/"+uid).set({numbers:g.numbers,usernames:g.usernames,badges:g.badges,premium:pcb.checked,premiumUntil:0},{merge:true})
+      .then(function(){toast(pcb.checked?"Premium выдан":"Premium снят");again()},fail);
   }));
   c.append(el("div","sec","Подарить NFT"));
   var sl=el("select");sl.style.cssText="width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--panel-2);font-size:16px;margin-bottom:8px";
@@ -1814,5 +1879,3 @@ async function start(){
 start().catch(function(e){console.error("START",e);showGate("noid")});
 })();
 </script>
-
-</body></html>
